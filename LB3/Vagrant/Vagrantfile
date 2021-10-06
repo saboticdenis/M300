@@ -1,0 +1,82 @@
+Vagrant.configure("2") do |config|
+  #Definition der zu erstellenden VMs / Wertdefinierung
+  servers=[
+      {
+        :hostname => "Server1",
+        :box => "ubuntu/xenial64",
+        :ip => "172.16.1.50",
+        :ssh_port => '2200'
+      },
+
+    ]
+
+      #Einstellungen der VMs, die Einstellungen werden bei allen VMs vorgenommen,
+      #der Reihe nach (1,2,3,4,....)
+  servers.each do |machine|
+          #Node definiert das die do Funktion als Loop verläuft bis alle VMs erstellt sind.
+      config.vm.define machine[:hostname] do |node|
+          #Vordefinition: Welche Box wird genommen
+          node.vm.box = machine[:box]
+          #Vordefinition: Welchen Namen kriegt die VM
+          node.vm.hostname = machine[:hostname]
+          #Welche IP bekommt die VM
+          node.vm.network :private_network, ip: machine[:ip]
+          #Weiterleitung des Host Ports an den Port des benutzers (Mich)
+          #Node definiert das dies für alle 3 VMs gemacht wird.
+          node.vm.network "forwarded_port", guest: 22, host: machine[:ssh_port], id: "ssh"
+          #Einstellungen auf Virtualbox Ebene, Ressourcenverteilung
+          node.vm.provider :virtualbox do |vb|
+              vb.customize ["modifyvm", :id, "--memory", 2000]
+              vb.customize ["modifyvm", :id, "--cpus", 1]
+              vb.gui = true
+              
+                # Docker Provisioner
+                 
+          end
+      end
+  end
+  #Script für Apache2
+  $script1 = <<-SCRIPT
+  echo I am installing apache2....
+  apt-get update
+  apt-get install -y apache2
+  SCRIPT
+
+  #Script für Firewall
+  $script2 = <<-SCRIPT
+  echo I am configuring our Firewall....
+  sudo apt-get update
+  sudo ufw deny out to any
+  sudo ufw allow 22
+  sudo ufw allow 70
+  sudo ufw allow 80
+  sudo ufw allow 90
+  sudo ufw allow 443
+  sudo ufw -f enable 
+  SCRIPT
+
+    #Bei Inline kann man das Script welches auf allen Servern ausgeführt werden soll eingeben
+  servers.each do |machine|
+    config.vm.provision "docker" do |d|
+      #Zieht mysql Container Image
+      d.pull_images "mysql:5.7"
+      #Zieht Alpine Linux COntainer Image
+      d.pull_images "ghost:1-alpine"
+      #Datenbank Konfig
+      d.run "ghost_mysql", image: "mysql:5.7", args: "-e MYSQL_ROOT_PASSWORD=admin -e MYSQL_USER=ghost -e MYSQL_PASSWORD=secret -e MYSQL_DATABASE=ghost --restart=always"
+      d.run "ghost", image: "ghost:1-alpine", args: "--link ghost_mysql:mysql -e database__client=mysql -e database__connection__host=ghost_mysql -e database__connection__user=ghost -e database__connection__password=secret -e database__connection__database=ghost -p 2368:2368 --restart=always"
+  end
+end
+    #   config.vm.provision "shell", inline: $script1
+#end
+  
+  #Einstellung auf Terminal Ebene (Ubuntu), wird bei allen VMs gemacht.
+# config.vm.provision "shell", inline: <<-SHELL
+  # installiert Apache, falls gewünscht, auskommentieren  
+ #    apt-get update
+ #   apt-get install -y apache2
+ #  SHELL
+  
+ 
+   #SSH Zugriff erfolgt im Terminal = vagrant ssh Servername
+end
